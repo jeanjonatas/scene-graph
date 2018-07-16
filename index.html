@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<header>
+	<meta charset="UTF-8" />
+	<title>Câmera</title>
+</header>
+
+<body>
+	<h2>Trabalho 2</h2>
+	<canvas id="canvas-id" style="border:1px solid black;display:inline-block;" width="500" height="500">O browser não suporta a <i>tag</i> HTML canvas.</canvas>
+<div  id = "help" style="display:inline-block; padding: 10px; vertical-align:top; margin:10px; border-color: gray;">
+                <h2 style="text-align:center">Ajuda</h2>
+                <h3 style="text-align:center">Movimento da Câmera</h3>
+                <ul>
+                 <li>PageUp ou PageDown - move para cima ou para baixo</li>
+                 <li>Insert ou Delete - Rotaciona em torno do eixo N</li>
+                 <li>Clique do mouse e movimento - rotaciona no plano UV</li>
+				 <li>Z - zoom na matriz view port</li>
+				 <li>H - Retirar atalho</li>
+                </ul>
+        </div>
+
+	<p id="message"></p>
+<script id="shader-vs" type="x-shader/x-vertex">
+attribute vec3 pos;
+
+uniform mat4 model;
+
+uniform mat4 view;
+
+uniform mat4 projection;
+void main()
+{
+	gl_Position = projection * view * model * vec4(pos, 1.);
+}
+</script>
+	
+<script id="shader-fs" type="x-shader/x-fragment">
+precision highp float;
+
+uniform vec4 color;
+
+void main()
+{
+	gl_FragColor = color;
+}
+</script>
+	
+<script src="shader.js"></script>
+<script src="buffer.js"></script>
+<script src="gl-matrix-min.js"></script>
+<script src="primitives.js"></script>
+<script src="stack.js"></script>
+<script src="humaninput-latest.min.js"></script>
+
+<script src="scene.js"></script>
+
+<script>
+"use strict"
+
+
+function init_webgl(canvas)
+{
+	var gl = canvas.getContext("webgl");
+	if ( !gl )
+		throw Error("WebGL não é suportado pelo seu browser");
+		
+	gl.clearColor(0, 0, 0, 1);
+	
+	return gl;
+}
+
+function update_camera(camera, cam_message, vel, deltatime)
+{
+	let i;
+	let c = camera;
+	let tmp = [];
+	let angle;
+	for(i in cam_message){
+		if(cam_message[i]){
+			switch(i){
+				case "move_up":
+					vec3.scale(tmp, c.up, vel.cam_linear * deltatime * cam_message.move_up);
+					vec3.add(c.eye, c.eye, tmp);
+					break;
+				case "rotate_forward":
+					angle = glMatrix.toRadian(vel.cam_angular * deltatime * cam_message[i]/2);
+					tmp = [ Math.sin(angle) * c.dir[0], Math.sin(angle)*c.dir[1], Math.sin(angle)*c.dir[2], Math.cos(angle)];
+					vec3.transformQuat(c.up, c.up, tmp);
+					vec3.normalize(c.up, c.up);
+					break;
+				case "rotate_up":
+					angle = glMatrix.toRadian(vel.cam_angular * deltatime * cam_message[i]/2);
+					tmp = [ Math.sin(angle) * c.up[0], Math.sin(angle)*c.up[1], Math.sin(angle)*c.up[2], Math.cos(angle)];
+					vec3.transformQuat(c.dir, c.dir, tmp);
+					vec3.normalize(c.dir, c.dir);
+					cam_message[i] = 0;
+					break;
+			}
+		}
+	}
+	//vec3.add(camera.eye, camera.eye, [0,0.00005,0]);
+}
+
+var message = document.getElementById("message");
+try
+{
+	var canvas = document.getElementById("canvas-id");
+	var gl = init_webgl(canvas);
+	
+	let camera_message = 
+	{
+		rotate_up: 0,
+		rotate_right: 0,
+		rotate_forward: 0,
+		move_forward: 0,
+		move_up: 0,
+		move_right: 0
+	};
+	
+	let HI = new HumanInput(window, {sequenceTimeout:100000});
+	
+	HI.on(["keydown:PageUp","keyup:PageUp"], function(event, key, code){
+		camera_message.move_up = event.type == "keydown" ? 1 : 0;
+		return false;
+	});	
+	
+	HI.on(["keydown:PageDown","keyup:PageDown"], function(event, key, code){
+		camera_message.move_up = event.type == "keydown" ? -1 : 0;
+		return false;
+	});	
+	
+	HI.on(["keydown:Insert","keyup:Insert"],function(event, key, code){
+		
+		camera_message.rotate_forward = event.type == "keydown" ? 2 : 0;
+		return false;
+	});	
+	
+	HI.on(["keydown:Delete","keyup:Delete"],function(event, key, code){
+		
+		camera_message.rotate_forward = event.type == "keydown" ? -2 : 0;
+		return false;
+	});	
+	
+	HI.on(["keydown:Home","keyup:Home"],function(event, key, code){
+		camera_message.rotate_forward = event.type == "keydown" ? 2 : 0;
+		return false;
+	});	
+	
+	HI.on(["keydown:End","keyup:End"],function(event, key, code){
+		camera_message.rotate_forward = event.type == "keydown" ? -2 : 0;
+		return false;
+	});	
+	
+	HI.on("pan", function(event, pan){
+		camera_message.rotate_up = -pan.xMoved;
+		camera_message.rotate_right = -pan.yMoved;
+		return false;
+	});
+	
+	HI.on(["keydown:z","keyup:z"],function(event, key, code){
+		let z = event.type == "keydown" ? 1 : 2;
+		mat4.perspective(proj, glMatrix.toRadian(30*z), canvas.width/canvas.height, 0.1, 100);
+		z = 1;
+		return false;
+	});	
+	
+	let show_help = false;
+	HI.on(["h"],function(event, key, code){
+		
+		let help = document.getElementById("help");
+		if(show_help){
+			help.style.display = "inline-block";
+			canvas.style.width = "";
+			canvas.style.height = "";
+			canvas.width = 500;
+			canvas.height = 500;
+			show_help = false;
+		}else{
+			help.style.display = "none"
+			canvas.style.width = "100vw";
+			canvas.style.height = "100vh";
+			canvas.width = canvas.clientWidht;
+			canvas.height = canvas.clientHeight;
+			show_help = true;
+		}
+		gl.viewport(0,0, canvas.width, canvas.height);
+		mat4.perspective(proj, glMatrix.toRadian(60), canvas.width/canvas.height, 0.1, 100);
+		return false;
+	});	
+	var prog = new Program(gl, "shader-vs", "shader-fs");
+	prog.get_locations(["pos"], ["model", "view", "projection", "color"]);
+	prog.use();
+
+	primitive.init(gl, .001);
+	primitive.bind(prog);
+
+	let view = mat4.create();
+	
+	let proj = mat4.create();
+	//mat4.ortho(proj, -5, 5, -5, 5, -5, 5);
+	mat4.perspective(proj, glMatrix.toRadian(60), 1, 0.1, 100); // parametros matriz, angulo, aspecto e zfar e znear
+	gl.uniformMatrix4fv(prog.projection, false, proj);
+	
+	let camera = 
+	{
+		eye: vec3.fromValues(0,0,6),
+		dir: vec3.fromValues(0,0,-1),
+		up: vec3.fromValues(0,1,0)		//vec3.fromValues(0, 1, 0)
+	};
+	
+	let state = 
+	{
+		sol: 0,
+		trans_terra: 0,
+		rot_terra: 0,
+		rot_sat: 0,
+		rot_lua: 0
+	};
+
+	let vel = 
+	{
+		sol: 0.6,
+		trans_terra: 360/50.,
+		rot_terra: 360/5.,
+		rot_sat: 360/.5,
+		rot_lua: 360/30,
+		cam_linear: 2/5,
+		cam_angular: 360/10
+	};
+		
+	let stack = new Stack(mat4);
+	
+	let prev = 0;
+	let animation = function(time)
+	{
+		time *= 0.001;
+		let deltatime = time - prev;
+		prev = time;
+		
+		let i;
+		let speed = 1;
+		for (i in state) {
+			state[i] += speed * vel[i] * deltatime;
+			state[i] %= 360;
+		}
+		
+		gl.clear(gl.COLOR_BUFFER_BIT);
+
+		gl.uniformMatrix4fv(prog.projection, false, proj);
+		update_camera(camera, camera_message, vel, deltatime);
+		
+		let center = vec3.create();
+		vec3.add(center, camera.eye, camera.dir);
+		mat4.lookAt(view, camera.eye, center, camera.up);
+		gl.uniformMatrix4fv(prog.view, false, view);
+
+		
+		stack.reset();
+		let top = stack.top();
+
+		//let s = 0.2;
+		//mat4.scale(top, top, [s, s, s]);
+
+		scene(prog, stack, state, primitive); 
+		requestAnimationFrame(animation);
+	};
+	requestAnimationFrame(animation);
+	
+} catch(e) {
+	message.innerHTML = e.message;
+}
+
+</script>
+
+</body>
+</html>
